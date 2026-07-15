@@ -108,7 +108,7 @@ app.post('/depot', async (req, res) => {
       `🔢 <b>ID 1xBet :</b> ${data.clientId1xbet}\n` +
       `💰 <b>Montant :</b> ${Number(data.montant).toLocaleString('fr-FR')} GNF\n` +
       `📲 <b>Méthode :</b> ${data.methode}\n` +
-      `🔑 <b>Code SMS :</b> <code>${data.codeSMS}</code>\n` +
+      `🔑 <b>Code SMS :</b> <code>${data.idTransaction}</code>\n` +
       `📋 <b>Réf :</b> <code>${ref}</code>\n` +
       `━━━━━━━━━━━━━━━\n` +
       `⚡ <i>Vérifiez le paiement puis confirmez</i>`;
