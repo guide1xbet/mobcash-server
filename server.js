@@ -67,8 +67,10 @@ function genConfirm(userId){ return md5(`${userId}:${CONFIG.HASH}`); }
 // ============================================
 // TELEGRAM
 // ============================================
-async function sendTelegram(text, keyboard=null){
-  const body = { chat_id: CONFIG.TELEGRAM_CHAT_ID, text, parse_mode: 'HTML' };
+async function sendTelegram(text, keyboard=null, chatId=null){
+  // Utiliser le Chat ID de l'agent si fourni, sinon celui par défaut
+  const targetChatId = chatId || CONFIG.TELEGRAM_CHAT_ID;
+  const body = { chat_id: targetChatId, text, parse_mode: 'HTML' };
   if(keyboard) body.reply_markup = { inline_keyboard: keyboard };
   await fetch(`https://api.telegram.org/bot${CONFIG.TELEGRAM_TOKEN}/sendMessage`, {
     method: 'POST',
@@ -116,7 +118,7 @@ app.post('/depot', async (req, res) => {
       { text: '❌ Rejeter', callback_data: `reject_depot_${ref}` }
     ]];
 
-    await sendTelegram(msg, keyboard);
+    await sendTelegram(msg, keyboard, data.telegramChatId || null);
     res.json({ success: true, ref });
   } catch(e) {
     console.error('Erreur depot:', e);
@@ -158,7 +160,7 @@ app.post('/retrait', async (req, res) => {
       { text: '❌ Rejeter', callback_data: `reject_retrait_${ref}` }
     ]];
 
-    await sendTelegram(msg, keyboard);
+    await sendTelegram(msg, keyboard, data.telegramChatId || null);
     res.json({ success: true, ref });
   } catch(e) {
     console.error('Erreur retrait:', e);
