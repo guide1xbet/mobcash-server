@@ -197,8 +197,10 @@ app.post('/webhook', async (req, res) => {
     }
 
     const depot = doc.data();
+    const agentChatId = depot.telegramChatId || null;
+
     if(depot.statut !== 'en_attente'){
-      await sendTelegram(`⚠️ Transaction <code>${ref}</code> déjà traitée.`);
+      await sendTelegram(`⚠️ Transaction <code>${ref}</code> déjà traitée.`, null, agentChatId);
       return;
     }
 
@@ -210,7 +212,8 @@ app.post('/webhook', async (req, res) => {
         `📋 Réf: <code>${ref}</code>\n` +
         `👤 ${depot.clientNom}\n` +
         `💰 ${Number(depot.montant).toLocaleString('fr-FR')} GNF\n\n` +
-        `<i>⚠️ API MobCash pas encore configurée — créditez manuellement</i>`
+        `<i>⚠️ API MobCash pas encore configurée — créditez manuellement</i>`,
+        null, agentChatId
       );
       return;
     }
@@ -241,13 +244,14 @@ app.post('/webhook', async (req, res) => {
           `📋 Réf: <code>${ref}</code>\n` +
           `👤 ${depot.clientNom}\n` +
           `💰 ${Number(depot.montant).toLocaleString('fr-FR')} GNF\n` +
-          `🎯 ID 1xBet: ${userId}`
+          `🎯 ID 1xBet: ${userId}`,
+          null, agentChatId
         );
       } else {
-        await sendTelegram(`❌ <b>Erreur MobCash</b>\nErreur: ${result.message || 'Inconnue'}\nCode: ${result.messageId}`);
+        await sendTelegram(`❌ <b>Erreur MobCash</b>\nErreur: ${result.message || 'Inconnue'}\nCode: ${result.messageId}`, null, agentChatId);
       }
     } catch(e){
-      await sendTelegram(`❌ Erreur serveur: ${e.message}`);
+      await sendTelegram(`❌ Erreur serveur: ${e.message}`, null, agentChatId);
     }
   }
 
@@ -256,12 +260,14 @@ app.post('/webhook', async (req, res) => {
     const ref = data.replace('reject_depot_', '');
     const doc = await db.collection('transactions').doc(ref).get();
     const depot = doc.exists ? doc.data() : {};
+    const agentChatId = depot.telegramChatId || null;
     await db.collection('transactions').doc(ref).update({ statut: 'rejete' });
     await sendTelegram(
       `❌ <b>DÉPÔT REJETÉ</b>\n` +
       `📋 Réf: <code>${ref}</code>\n` +
       `👤 ${depot.clientNom || 'Inconnu'}\n` +
-      `<i>Contactez le client sur WhatsApp: ${depot.clientWa || ''}</i>`
+      `<i>Contactez le client sur WhatsApp: ${depot.clientWa || ''}</i>`,
+      null, agentChatId
     );
   }
 
@@ -276,8 +282,10 @@ app.post('/webhook', async (req, res) => {
     }
 
     const retrait = doc.data();
+    const agentChatId = retrait.telegramChatId || null;
+
     if(retrait.statut !== 'en_attente'){
-      await sendTelegram(`⚠️ Transaction <code>${ref}</code> déjà traitée.`);
+      await sendTelegram(`⚠️ Transaction <code>${ref}</code> déjà traitée.`, null, agentChatId);
       return;
     }
 
@@ -289,7 +297,8 @@ app.post('/webhook', async (req, res) => {
         `👤 ${retrait.clientNom}\n` +
         `💰 ${Number(retrait.montant).toLocaleString('fr-FR')} GNF\n` +
         `📲 Envoyez au: ${retrait.numeroReception}\n\n` +
-        `<i>⚠️ API MobCash pas encore configurée — traitez manuellement</i>`
+        `<i>⚠️ API MobCash pas encore configurée — traitez manuellement</i>`,
+        null, agentChatId
       );
       return;
     }
@@ -319,13 +328,14 @@ app.post('/webhook', async (req, res) => {
           `📋 Réf: <code>${ref}</code>\n` +
           `👤 ${retrait.clientNom}\n` +
           `💰 ${Number(result.summa || retrait.montant).toLocaleString('fr-FR')} GNF\n` +
-          `📲 Envoyez au: ${retrait.numeroReception} via ${retrait.methode}`
+          `📲 Envoyez au: ${retrait.numeroReception} via ${retrait.methode}`,
+          null, agentChatId
         );
       } else {
-        await sendTelegram(`❌ <b>Erreur MobCash retrait</b>\nErreur: ${result.message || 'Inconnue'}`);
+        await sendTelegram(`❌ <b>Erreur MobCash retrait</b>\nErreur: ${result.message || 'Inconnue'}`, null, agentChatId);
       }
     } catch(e){
-      await sendTelegram(`❌ Erreur serveur: ${e.message}`);
+      await sendTelegram(`❌ Erreur serveur: ${e.message}`, null, agentChatId);
     }
   }
 
@@ -334,12 +344,14 @@ app.post('/webhook', async (req, res) => {
     const ref = data.replace('reject_retrait_', '');
     const doc = await db.collection('transactions').doc(ref).get();
     const retrait = doc.exists ? doc.data() : {};
+    const agentChatId = retrait.telegramChatId || null;
     await db.collection('transactions').doc(ref).update({ statut: 'rejete' });
     await sendTelegram(
       `❌ <b>RETRAIT REJETÉ</b>\n` +
       `📋 Réf: <code>${ref}</code>\n` +
       `👤 ${retrait.clientNom || 'Inconnu'}\n` +
-      `<i>Contactez le client: ${retrait.clientWa || ''}</i>`
+      `<i>Contactez le client: ${retrait.clientWa || ''}</i>`,
+      null, agentChatId
     );
   }
 });
