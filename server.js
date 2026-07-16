@@ -99,16 +99,22 @@ function genConfirm(userId){
 // ============================================
 // TELEGRAM
 // ============================================
-async function sendTelegram(text, keyboard=null, chatId=null){
-  // Utiliser le Chat ID de l'agent si fourni, sinon celui par défaut
+async function sendTelegram(text, keyboard=null, chatId=null, token=null){
   const targetChatId = chatId || CONFIG.TELEGRAM_CHAT_ID;
+  const targetToken = token || CONFIG.TELEGRAM_TOKEN;
   const body = { chat_id: targetChatId, text, parse_mode: 'HTML' };
   if(keyboard) body.reply_markup = { inline_keyboard: keyboard };
-  await fetch(`https://api.telegram.org/bot${CONFIG.TELEGRAM_TOKEN}/sendMessage`, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body)
-  });
+  try {
+    const res = await fetch('https://api.telegram.org/bot'+targetToken+'/sendMessage', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!data.ok) console.log('[TELEGRAM ERROR]', JSON.stringify(data));
+  } catch(e) {
+    console.log('[TELEGRAM ERROR]', e.message);
+  }
 }
 
 // ============================================
@@ -150,7 +156,7 @@ app.post('/depot', async (req, res) => {
       { text: '❌ Rejeter', callback_data: `reject_depot_${ref}` }
     ]];
 
-    await sendTelegram(msg, keyboard, data.telegramChatId || null);
+    await sendTelegram(msg, keyboard, data.telegramChatId || null, data.telegramToken || null);
     res.json({ success: true, ref });
   } catch(e) {
     console.error('Erreur depot:', e);
@@ -192,7 +198,7 @@ app.post('/retrait', async (req, res) => {
       { text: '❌ Rejeter', callback_data: `reject_retrait_${ref}` }
     ]];
 
-    await sendTelegram(msg, keyboard, data.telegramChatId || null);
+    await sendTelegram(msg, keyboard, data.telegramChatId || null, data.telegramToken || null);
     res.json({ success: true, ref });
   } catch(e) {
     console.error('Erreur retrait:', e);
@@ -230,9 +236,10 @@ app.post('/webhook', async (req, res) => {
 
     const depot = doc.data();
     const agentChatId = depot.telegramChatId || null;
+    const agentToken = depot.telegramToken || null;
 
     if(depot.statut !== 'en_attente'){
-      await sendTelegram(`⚠️ Transaction <code>${ref}</code> déjà traitée.`, null, agentChatId);
+      await sendTelegram(`⚠️ Transaction <code>${ref}</code> déjà traitée.`, null, agentChatId, agentToken);
       return;
     }
 
@@ -287,10 +294,10 @@ app.post('/webhook', async (req, res) => {
           null, agentChatId
         );
       } else {
-        await sendTelegram(`❌ <b>Erreur MobCash</b>\nErreur: ${result.Message || result.message || 'Inconnue'}\nCode: ${result.MessageId || result.messageId}`, null, agentChatId);
+        await sendTelegram(`❌ <b>Erreur MobCash</b>\nErreur: ${result.Message || result.message || 'Inconnue'}\nCode: ${result.MessageId || result.messageId}`, null, agentChatId, agentToken);
       }
     } catch(e){
-      await sendTelegram(`❌ Erreur serveur: ${e.message}`, null, agentChatId);
+      await sendTelegram(`❌ Erreur serveur: ${e.message}`, null, agentChatId, agentToken);
     }
   }
 
@@ -322,9 +329,10 @@ app.post('/webhook', async (req, res) => {
 
     const retrait = doc.data();
     const agentChatId = retrait.telegramChatId || null;
+    const agentToken = retrait.telegramToken || null;
 
     if(retrait.statut !== 'en_attente'){
-      await sendTelegram(`⚠️ Transaction <code>${ref}</code> déjà traitée.`, null, agentChatId);
+      await sendTelegram(`⚠️ Transaction <code>${ref}</code> déjà traitée.`, null, agentChatId, agentToken);
       return;
     }
 
@@ -373,10 +381,10 @@ app.post('/webhook', async (req, res) => {
           null, agentChatId
         );
       } else {
-        await sendTelegram(`❌ <b>Erreur MobCash retrait</b>\nErreur: ${result.message || 'Inconnue'}`, null, agentChatId);
+        await sendTelegram(`❌ <b>Erreur MobCash retrait</b>\nErreur: ${result.message || 'Inconnue'}`, null, agentChatId, agentToken);
       }
     } catch(e){
-      await sendTelegram(`❌ Erreur serveur: ${e.message}`, null, agentChatId);
+      await sendTelegram(`❌ Erreur serveur: ${e.message}`, null, agentChatId, agentToken);
     }
   }
 
