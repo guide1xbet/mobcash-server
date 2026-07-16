@@ -211,31 +211,24 @@ app.post('/retrait', async (req, res) => {
 // ============================================
 app.post('/webhook', async (req, res) => {
   res.json({ ok: true });
-  const update = req.body;
+  await handleWebhook(req.body, CONFIG.TELEGRAM_TOKEN);
+});
+
+// Fonction commune pour traiter les webhooks
+async function handleWebhook(update, botToken){
   if(!update.callback_query) return;
 
   const query = update.callback_query;
   const data = query.data;
 
-  // Extraire la ref depuis le callback_data pour trouver le bon token
-  const ref = data.replace('confirm_depot_','').replace('reject_depot_','')
-                   .replace('confirm_retrait_','').replace('reject_retrait_','');
-
-  // Lire la transaction Firebase pour obtenir le token de l'agent
-  let agentBotToken = CONFIG.TELEGRAM_TOKEN;
-  try {
-    const txDoc = await db.collection('transactions').doc(ref).get();
-    if(txDoc.exists && txDoc.data().telegramToken){
-      agentBotToken = txDoc.data().telegramToken;
-    }
-  } catch(e){ console.log('[WEBHOOK] Erreur lecture token:', e.message); }
-
-  // Répondre à Telegram avec le bon token
-  await fetch('https://api.telegram.org/bot'+agentBotToken+'/answerCallbackQuery', {
+  // Répondre à Telegram immédiatement avec le bon token
+  await fetch('https://api.telegram.org/bot'+botToken+'/answerCallbackQuery', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ callback_query_id: query.id })
   });
+
+  const agentToken = botToken; // token du bot de l'agent
 
   // ---- DÉPÔT CONFIRMÉ ----
   if(data.startsWith('confirm_depot_')){
@@ -433,6 +426,13 @@ app.listen(PORT, async () => {
       body: JSON.stringify({ url: `${CONFIG.RENDER_URL}/webhook` })
     });
     console.log('Webhook Telegram configuré');
+    // Configurer aussi le webhook du bot de Joseph
+    await fetch('https://api.telegram.org/bot7979158544:AAG5_MhnoMZ0UpIzU0GC_mEpDIFYqi1l31s/setWebhook', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ url: RENDER_URL+'/webhook/joseph' })
+    });
+    console.log('Webhook bot Joseph configuré');
   } catch(e){
     console.warn('Webhook Telegram erreur:', e.message);
   }
