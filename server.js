@@ -217,8 +217,21 @@ app.post('/webhook', async (req, res) => {
   const query = update.callback_query;
   const data = query.data;
 
-  // Répondre à Telegram
-  await fetch(`https://api.telegram.org/bot${CONFIG.TELEGRAM_TOKEN}/answerCallbackQuery`, {
+  // Extraire la ref depuis le callback_data pour trouver le bon token
+  const ref = data.replace('confirm_depot_','').replace('reject_depot_','')
+                   .replace('confirm_retrait_','').replace('reject_retrait_','');
+
+  // Lire la transaction Firebase pour obtenir le token de l'agent
+  let agentBotToken = CONFIG.TELEGRAM_TOKEN;
+  try {
+    const txDoc = await db.collection('transactions').doc(ref).get();
+    if(txDoc.exists && txDoc.data().telegramToken){
+      agentBotToken = txDoc.data().telegramToken;
+    }
+  } catch(e){ console.log('[WEBHOOK] Erreur lecture token:', e.message); }
+
+  // Répondre à Telegram avec le bon token
+  await fetch('https://api.telegram.org/bot'+agentBotToken+'/answerCallbackQuery', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ callback_query_id: query.id })
