@@ -58,28 +58,41 @@ const CONFIG = {
 function sha256(str){ return crypto.createHash('sha256').update(str).digest('hex'); }
 function md5(str){ return crypto.createHash('md5').update(str).digest('hex'); }
 
-// Signature DEPOT : MD5(summa=X&cashierpass=Y&cashdeskid=Z)
+// Signature DEPOT
+// P1: SHA256(hash={0}&lng={1}&userid={2}) — userid en minuscules !
+// P2: MD5(summa={0}&cashierpass={1}&cashdeskid={2})
+// SIGN: SHA256(P1+P2)
 function genSignDepot(lng, userid, summa){
-  const p1 = sha256('hash='+CONFIG.HASH+'&lng='+lng+'&Userid='+userid);
-  const p2 = md5('summa='+summa+'&cashierpass='+CONFIG.CASHIERPASS+'&cashdeskid='+CONFIG.CASHDESKID);
+  const p1str = 'hash='+CONFIG.HASH+'&lng='+lng+'&userid='+userid;
+  const p2str = 'summa='+summa+'&cashierpass='+CONFIG.CASHIERPASS+'&cashdeskid='+CONFIG.CASHDESKID;
+  const p1 = sha256(p1str);
+  const p2 = md5(p2str);
   const sign = sha256(p1 + p2);
-  console.log('[DEPOT SIGN] p1='+p1.substr(0,20)+' p2='+p2.substr(0,20)+' sign='+sign.substr(0,20));
+  console.log('[DEPOT SIGN] p1_str='+p1str.substr(0,60));
+  console.log('[DEPOT SIGN] p2_str='+p2str);
+  console.log('[DEPOT SIGN] p1='+p1);
+  console.log('[DEPOT SIGN] p2='+p2);
+  console.log('[DEPOT SIGN] sign='+sign);
   return sign;
 }
 
-// Signature RETRAIT : MD5(code=X&cashierpass=Y&cashdeskid=Z)
+// Signature RETRAIT
+// P1: SHA256(hash={0}&lng={1}&userid={2})
+// P2: MD5(code={0}&cashierpass={1}&cashdeskid={2})
 function genSignRetrait(lng, userid, code){
-  const p1 = sha256('hash='+CONFIG.HASH+'&lng='+lng+'&Userid='+userid);
-  const p2 = md5('code='+code+'&cashierpass='+CONFIG.CASHIERPASS+'&cashdeskid='+CONFIG.CASHDESKID);
+  const p1str = 'hash='+CONFIG.HASH+'&lng='+lng+'&userid='+userid;
+  const p2str = 'code='+code+'&cashierpass='+CONFIG.CASHIERPASS+'&cashdeskid='+CONFIG.CASHDESKID;
+  const p1 = sha256(p1str);
+  const p2 = md5(p2str);
   const sign = sha256(p1 + p2);
-  console.log('[RETRAIT SIGN] p1='+p1.substr(0,20)+' p2='+p2.substr(0,20)+' sign='+sign.substr(0,20));
+  console.log('[RETRAIT SIGN] sign='+sign);
   return sign;
 }
 
 // Confirm = MD5(userId:hash)
 function genConfirm(userId){
   const confirm = md5(userId+':'+CONFIG.HASH);
-  console.log('[CONFIRM] userId='+userId+' confirm='+confirm.substr(0,20));
+  console.log('[CONFIRM] confirm='+confirm);
   return confirm;
 }
 
@@ -239,21 +252,26 @@ app.post('/webhook', async (req, res) => {
 
     // Appel API MobCash
     try {
-      const lng = 'fr';
+      const lng = 'ru';
       const userId = depot.clientId1xbet;
-      const sign = genSignDepot(lng, userId, parseFloat(depot.montant));
+      const montant = parseFloat(depot.montant);
+      const sign = genSignDepot(lng, userId, montant);
       const confirm = genConfirm(userId);
-      console.log('[DEPOT] userId='+userId+' montant='+depot.montant+' cashdeskid='+CONFIG.CASHDESKID);
+
+      const reqBody = {
+        cashdeskid: parseInt(CONFIG.CASHDESKID),
+        lng: lng,
+        summa: montant,
+        confirm: confirm
+      };
+      console.log('[DEPOT REQUEST] URL='+CONFIG.MOBCASH_URL+'/Deposit/'+userId+'/Add');
+      console.log('[DEPOT REQUEST] headers sign='+sign.substr(0,30)+'...');
+      console.log('[DEPOT REQUEST] body='+JSON.stringify(reqBody));
 
       const response = await fetch(CONFIG.MOBCASH_URL+'/Deposit/'+userId+'/Add', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'sign': sign},
-        body: JSON.stringify({
-          cashdeskid: parseInt(CONFIG.CASHDESKID),
-          lng,
-          summa: parseFloat(depot.montant),
-          confirm
-        })
+        body: JSON.stringify(reqBody)
       });
 
       const result = await response.json();
