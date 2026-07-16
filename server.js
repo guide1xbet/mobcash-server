@@ -57,12 +57,31 @@ const CONFIG = {
 // ============================================
 function sha256(str){ return crypto.createHash('sha256').update(str).digest('hex'); }
 function md5(str){ return crypto.createHash('md5').update(str).digest('hex'); }
-function genSign(lng, userid){
-  const p1 = sha256(`hash=${CONFIG.HASH}&lng=${lng}&Userid=${userid}`);
-  const p2 = md5(`summa=0&cashierpass=${CONFIG.CASHIERPASS}&cashdeskid=${CONFIG.CASHDESKID}`);
-  return sha256(p1 + p2);
+
+// Signature DEPOT : MD5(summa=X&cashierpass=Y&cashdeskid=Z)
+function genSignDepot(lng, userid, summa){
+  const p1 = sha256('hash='+CONFIG.HASH+'&lng='+lng+'&Userid='+userid);
+  const p2 = md5('summa='+summa+'&cashierpass='+CONFIG.CASHIERPASS+'&cashdeskid='+CONFIG.CASHDESKID);
+  const sign = sha256(p1 + p2);
+  console.log('[DEPOT SIGN] p1='+p1.substr(0,20)+' p2='+p2.substr(0,20)+' sign='+sign.substr(0,20));
+  return sign;
 }
-function genConfirm(userId){ return md5(`${userId}:${CONFIG.HASH}`); }
+
+// Signature RETRAIT : MD5(code=X&cashierpass=Y&cashdeskid=Z)
+function genSignRetrait(lng, userid, code){
+  const p1 = sha256('hash='+CONFIG.HASH+'&lng='+lng+'&Userid='+userid);
+  const p2 = md5('code='+code+'&cashierpass='+CONFIG.CASHIERPASS+'&cashdeskid='+CONFIG.CASHDESKID);
+  const sign = sha256(p1 + p2);
+  console.log('[RETRAIT SIGN] p1='+p1.substr(0,20)+' p2='+p2.substr(0,20)+' sign='+sign.substr(0,20));
+  return sign;
+}
+
+// Confirm = MD5(userId:hash)
+function genConfirm(userId){
+  const confirm = md5(userId+':'+CONFIG.HASH);
+  console.log('[CONFIRM] userId='+userId+' confirm='+confirm.substr(0,20));
+  return confirm;
+}
 
 // ============================================
 // TELEGRAM
@@ -222,10 +241,11 @@ app.post('/webhook', async (req, res) => {
     try {
       const lng = 'fr';
       const userId = depot.clientId1xbet;
-      const sign = genSign(lng, userId);
+      const sign = genSignDepot(lng, userId, parseFloat(depot.montant));
       const confirm = genConfirm(userId);
+      console.log('[DEPOT] userId='+userId+' montant='+depot.montant+' cashdeskid='+CONFIG.CASHDESKID);
 
-      const response = await fetch(`${CONFIG.MOBCASH_URL}/Deposit/${userId}/Add`, {
+      const response = await fetch(CONFIG.MOBCASH_URL+'/Deposit/'+userId+'/Add', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'sign': sign},
         body: JSON.stringify({
@@ -237,6 +257,7 @@ app.post('/webhook', async (req, res) => {
       });
 
       const result = await response.json();
+      console.log('[MOBCASH RESPONSE]', JSON.stringify(result));
       if(result.success){
         await db.collection('transactions').doc(ref).update({ statut: 'credite', creditedAt: admin.firestore.FieldValue.serverTimestamp() });
         await sendTelegram(
@@ -306,10 +327,11 @@ app.post('/webhook', async (req, res) => {
     try {
       const lng = 'fr';
       const userId = retrait.clientId1xbet;
-      const sign = genSign(lng, userId);
+      const sign = genSignRetrait(lng, userId, retrait.codeRetrait);
       const confirm = genConfirm(userId);
+      console.log('[RETRAIT] userId='+userId+' code='+retrait.codeRetrait+' cashdeskid='+CONFIG.CASHDESKID);
 
-      const response = await fetch(`${CONFIG.MOBCASH_URL}/Deposit/${userId}/Payout`, {
+      const response = await fetch(CONFIG.MOBCASH_URL+'/Deposit/'+userId+'/Payout', {
         method: 'POST',
         headers: {'Content-Type': 'application/json', 'sign': sign},
         body: JSON.stringify({
@@ -321,6 +343,7 @@ app.post('/webhook', async (req, res) => {
       });
 
       const result = await response.json();
+      console.log('[MOBCASH RESPONSE]', JSON.stringify(result));
       if(result.success){
         await db.collection('transactions').doc(ref).update({ statut: 'traite', processedAt: admin.firestore.FieldValue.serverTimestamp() });
         await sendTelegram(
