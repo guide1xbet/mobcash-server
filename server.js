@@ -16,7 +16,7 @@ app.use(function(req, res, next){
 });
 
 // ============================================
-// FIREBASE ADMIN
+// FIREBASE
 // ============================================
 const serviceAccount = {
   type: "service_account",
@@ -26,20 +26,14 @@ const serviceAccount = {
   client_email: "firebase-adminsdk-fbsvc@mobcash-joseph.iam.gserviceaccount.com",
   client_id: "103580781431988851964",
   auth_uri: "https://accounts.google.com/o/oauth2/auth",
-  token_uri: "https://oauth2.googleapis.com/token",
-  auth_provider_x509_cert_url: "https://www.googleapis.com/oauth2/v1/certs",
-  client_x509_cert_url: "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40mobcash-joseph.iam.gserviceaccount.com"
+  token_uri: "https://oauth2.googleapis.com/token"
 };
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-  projectId: 'mobcash-joseph'
-});
-
+admin.initializeApp({ credential: admin.credential.cert(serviceAccount), projectId: 'mobcash-joseph' });
 const db = admin.firestore();
 
 // ============================================
-// CONFIGURATION
+// CONFIG
 // ============================================
 const CONFIG = {
   MOBCASH_URL: 'https://partners.servcul.com/CashdeskBotAPI',
@@ -49,60 +43,46 @@ const CONFIG = {
   CASHDESKID: process.env.MOBCASH_CASHDESKID || '',
   TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN || '8846519263:AAElTs6UGuo1WfjZfHQQcK3E3HVfDHRZhys',
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID || '8022571456',
-  RENDER_URL: process.env.RENDER_URL || 'https://mobcash-server.onrender.com'
+  RENDER_URL: process.env.RENDER_URL || 'https://mobcash-server.onrender.com',
+  // Bots des agents
+  BOTS: {
+    'joseph': {
+      token: '7979158544:AAG5_MhnoMZ0UpIzU0GC_mEpDIFYqi1l31s',
+      chatId: '1010477144',
+      webhook: '/webhook/joseph'
+    }
+  }
 };
 
 // ============================================
-// CRYPTO (selon doc MobCash)
+// CRYPTO
 // ============================================
 function sha256(str){ return crypto.createHash('sha256').update(str).digest('hex'); }
 function md5(str){ return crypto.createHash('md5').update(str).digest('hex'); }
 
-// Signature DEPOT
-// P1: SHA256(hash={0}&lng={1}&userid={2}) — userid en minuscules !
-// P2: MD5(summa={0}&cashierpass={1}&cashdeskid={2})
-// SIGN: SHA256(P1+P2)
 function genSignDepot(lng, userid, summa){
-  const p1str = 'hash='+CONFIG.HASH+'&lng='+lng+'&userid='+userid;
-  const p2str = 'summa='+summa+'&cashierpass='+CONFIG.CASHIERPASS+'&cashdeskid='+CONFIG.CASHDESKID;
-  const p1 = sha256(p1str);
-  const p2 = md5(p2str);
+  const p1 = sha256('hash='+CONFIG.HASH+'&lng='+lng+'&userid='+userid);
+  const p2 = md5('summa='+summa+'&cashierpass='+CONFIG.CASHIERPASS+'&cashdeskid='+CONFIG.CASHDESKID);
   const sign = sha256(p1 + p2);
-  console.log('[DEPOT SIGN] p1_str='+p1str.substr(0,60));
-  console.log('[DEPOT SIGN] p2_str='+p2str);
-  console.log('[DEPOT SIGN] p1='+p1);
-  console.log('[DEPOT SIGN] p2='+p2);
-  console.log('[DEPOT SIGN] sign='+sign);
+  console.log('[DEPOT SIGN] p1='+p1+' p2='+p2+' sign='+sign);
   return sign;
 }
 
-// Signature RETRAIT
-// P1: SHA256(hash={0}&lng={1}&userid={2})
-// P2: MD5(code={0}&cashierpass={1}&cashdeskid={2})
 function genSignRetrait(lng, userid, code){
-  const p1str = 'hash='+CONFIG.HASH+'&lng='+lng+'&userid='+userid;
-  const p2str = 'code='+code+'&cashierpass='+CONFIG.CASHIERPASS+'&cashdeskid='+CONFIG.CASHDESKID;
-  const p1 = sha256(p1str);
-  const p2 = md5(p2str);
-  const sign = sha256(p1 + p2);
-  console.log('[RETRAIT SIGN] sign='+sign);
-  return sign;
+  const p1 = sha256('hash='+CONFIG.HASH+'&lng='+lng+'&userid='+userid);
+  const p2 = md5('code='+code+'&cashierpass='+CONFIG.CASHIERPASS+'&cashdeskid='+CONFIG.CASHDESKID);
+  return sha256(p1 + p2);
 }
 
-// Confirm = MD5(userId:hash)
-function genConfirm(userId){
-  const confirm = md5(userId+':'+CONFIG.HASH);
-  console.log('[CONFIRM] confirm='+confirm);
-  return confirm;
-}
+function genConfirm(userId){ return md5(userId+':'+CONFIG.HASH); }
 
 // ============================================
 // TELEGRAM
 // ============================================
-async function sendTelegram(text, keyboard=null, chatId=null, token=null){
+async function sendTelegram(text, keyboard, chatId, token){
   const targetChatId = chatId || CONFIG.TELEGRAM_CHAT_ID;
   const targetToken = token || CONFIG.TELEGRAM_TOKEN;
-  const body = { chat_id: targetChatId, text, parse_mode: 'HTML' };
+  const body = { chat_id: targetChatId, text: text, parse_mode: 'HTML' };
   if(keyboard) body.reply_markup = { inline_keyboard: keyboard };
   try {
     const res = await fetch('https://api.telegram.org/bot'+targetToken+'/sendMessage', {
@@ -112,9 +92,7 @@ async function sendTelegram(text, keyboard=null, chatId=null, token=null){
     });
     const data = await res.json();
     if(!data.ok) console.log('[TELEGRAM ERROR]', JSON.stringify(data));
-  } catch(e) {
-    console.log('[TELEGRAM ERROR]', e.message);
-  }
+  } catch(e){ console.log('[TELEGRAM ERROR]', e.message); }
 }
 
 // ============================================
@@ -123,45 +101,32 @@ async function sendTelegram(text, keyboard=null, chatId=null, token=null){
 app.get('/ping', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 
 // ============================================
-// DÉPÔT
+// DEPOT
 // ============================================
 app.post('/depot', async (req, res) => {
   try {
     const data = req.body;
     const ref = data.ref;
-
-    // Sauvegarder dans Firebase
     await db.collection('transactions').doc(ref).set({
-      ...data,
-      type: 'depot',
-      statut: 'en_attente',
+      ...data, type: 'depot', statut: 'en_attente',
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
-
-    // Notifier Joseph avec boutons
-    const msg = `<b>💳 NOUVEAU DÉPÔT</b>\n` +
-      `━━━━━━━━━━━━━━━\n` +
-      `👤 <b>Client :</b> ${data.clientNom}\n` +
-      `📱 <b>WhatsApp :</b> ${data.clientWa}\n` +
-      `🔢 <b>ID 1xBet :</b> ${data.clientId1xbet}\n` +
-      `💰 <b>Montant :</b> ${Number(data.montant).toLocaleString('fr-FR')} GNF\n` +
-      `📲 <b>Méthode :</b> ${data.methode}\n` +
-      `🔑 <b>Code SMS :</b> <code>${data.idTransaction}</code>\n` +
-      `📋 <b>Réf :</b> <code>${ref}</code>\n` +
-      `━━━━━━━━━━━━━━━\n` +
-      `⚡ <i>Vérifiez le paiement puis confirmez</i>`;
-
+    const msg = '<b>💳 NOUVEAU DÉPÔT</b>\n━━━━━━━━━━━━━━━\n' +
+      '👤 <b>Client :</b> '+data.clientNom+'\n' +
+      '📱 <b>WhatsApp :</b> '+data.clientWa+'\n' +
+      '🔢 <b>ID 1xBet :</b> '+data.clientId1xbet+'\n' +
+      '💰 <b>Montant :</b> '+Number(data.montant).toLocaleString('fr-FR')+' GNF\n' +
+      '📲 <b>Méthode :</b> '+data.methode+'\n' +
+      '🔑 <b>ID Transaction :</b> <code>'+data.idTransaction+'</code>\n' +
+      '📋 <b>Réf :</b> <code>'+ref+'</code>\n━━━━━━━━━━━━━━━\n' +
+      '⚡ <i>Vérifiez le paiement puis confirmez</i>';
     const keyboard = [[
-      { text: '✅ Confirmer et créditer', callback_data: `confirm_depot_${ref}` },
-      { text: '❌ Rejeter', callback_data: `reject_depot_${ref}` }
+      { text: '✅ Confirmer et créditer', callback_data: 'confirm_depot_'+ref },
+      { text: '❌ Rejeter', callback_data: 'reject_depot_'+ref }
     ]];
-
     await sendTelegram(msg, keyboard, data.telegramChatId || null, data.telegramToken || null);
-    res.json({ success: true, ref });
-  } catch(e) {
-    console.error('Erreur depot:', e);
-    res.json({ success: false, message: e.message });
-  }
+    res.json({ success: true, ref: ref });
+  } catch(e){ console.error('Erreur depot:', e); res.json({ success: false, message: e.message }); }
 });
 
 // ============================================
@@ -171,269 +136,191 @@ app.post('/retrait', async (req, res) => {
   try {
     const data = req.body;
     const ref = data.ref;
-
-    // Sauvegarder dans Firebase
     await db.collection('transactions').doc(ref).set({
-      ...data,
-      type: 'retrait',
-      statut: 'en_attente',
+      ...data, type: 'retrait', statut: 'en_attente',
       createdAt: admin.firestore.FieldValue.serverTimestamp()
     });
-
-    const msg = `<b>💰 NOUVEAU RETRAIT</b>\n` +
-      `━━━━━━━━━━━━━━━\n` +
-      `👤 <b>Client :</b> ${data.clientNom}\n` +
-      `📱 <b>WhatsApp :</b> ${data.clientWa}\n` +
-      `🔢 <b>ID 1xBet :</b> ${data.clientId1xbet}\n` +
-      `💰 <b>Montant :</b> ${Number(data.montant).toLocaleString('fr-FR')} GNF\n` +
-      `🔑 <b>Code retrait :</b> <code>${data.codeRetrait}</code>\n` +
-      `📲 <b>Réception :</b> ${data.numeroReception}\n` +
-      `💳 <b>Méthode :</b> ${data.methode}\n` +
-      `📋 <b>Réf :</b> <code>${ref}</code>\n` +
-      `━━━━━━━━━━━━━━━\n` +
-      `⚡ <i>Vérifiez et traitez le retrait</i>`;
-
+    const msg = '<b>💰 NOUVEAU RETRAIT</b>\n━━━━━━━━━━━━━━━\n' +
+      '👤 <b>Client :</b> '+data.clientNom+'\n' +
+      '📱 <b>WhatsApp :</b> '+data.clientWa+'\n' +
+      '🔢 <b>ID 1xBet :</b> '+data.clientId1xbet+'\n' +
+      '💰 <b>Montant :</b> '+Number(data.montant).toLocaleString('fr-FR')+' GNF\n' +
+      '🔑 <b>Code retrait :</b> <code>'+data.codeRetrait+'</code>\n' +
+      '📲 <b>Réception :</b> '+data.numeroReception+'\n' +
+      '💳 <b>Méthode :</b> '+data.methode+'\n' +
+      '📋 <b>Réf :</b> <code>'+ref+'</code>\n━━━━━━━━━━━━━━━\n' +
+      '⚡ <i>Vérifiez et traitez le retrait</i>';
     const keyboard = [[
-      { text: '✅ Confirmer le retrait', callback_data: `confirm_retrait_${ref}` },
-      { text: '❌ Rejeter', callback_data: `reject_retrait_${ref}` }
+      { text: '✅ Confirmer le retrait', callback_data: 'confirm_retrait_'+ref },
+      { text: '❌ Rejeter', callback_data: 'reject_retrait_'+ref }
     ]];
-
     await sendTelegram(msg, keyboard, data.telegramChatId || null, data.telegramToken || null);
-    res.json({ success: true, ref });
-  } catch(e) {
-    console.error('Erreur retrait:', e);
-    res.json({ success: false, message: e.message });
-  }
+    res.json({ success: true, ref: ref });
+  } catch(e){ console.error('Erreur retrait:', e); res.json({ success: false, message: e.message }); }
 });
 
 // ============================================
-// WEBHOOK TELEGRAM
+// HANDLER WEBHOOK COMMUN
 // ============================================
-app.post('/webhook', async (req, res) => {
-  res.json({ ok: true });
-  await handleWebhook(req.body, CONFIG.TELEGRAM_TOKEN);
-});
-
-// Fonction commune pour traiter les webhooks
 async function handleWebhook(update, botToken){
   if(!update.callback_query) return;
-
   const query = update.callback_query;
-  const data = query.data;
+  const cbData = query.data;
 
-  // Répondre à Telegram immédiatement avec le bon token
+  // Répondre immédiatement à Telegram
   await fetch('https://api.telegram.org/bot'+botToken+'/answerCallbackQuery', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ callback_query_id: query.id })
   });
 
-  const agentToken = botToken; // token du bot de l'agent
-
   // ---- DÉPÔT CONFIRMÉ ----
-  if(data.startsWith('confirm_depot_')){
-    const ref = data.replace('confirm_depot_', '');
+  if(cbData.startsWith('confirm_depot_')){
+    const ref = cbData.replace('confirm_depot_', '');
     const doc = await db.collection('transactions').doc(ref).get();
-
-    if(!doc.exists){
-      await sendTelegram(`⚠️ Transaction <code>${ref}</code> introuvable ou déjà traitée.`);
-      return;
-    }
-
+    if(!doc.exists){ await sendTelegram('⚠️ Transaction <code>'+ref+'</code> introuvable.', null, null, botToken); return; }
     const depot = doc.data();
-    const agentChatId = depot.telegramChatId || null;
-    const agentToken = depot.telegramToken || null;
-
+    const chatId = depot.telegramChatId || null;
     if(depot.statut !== 'en_attente'){
-      await sendTelegram(`⚠️ Transaction <code>${ref}</code> déjà traitée.`, null, agentChatId, agentToken);
-      return;
+      await sendTelegram('⚠️ Transaction <code>'+ref+'</code> déjà traitée.', null, chatId, botToken); return;
     }
-
     if(!CONFIG.HASH){
-      // Mode test
       await db.collection('transactions').doc(ref).update({ statut: 'confirme_test' });
-      await sendTelegram(
-        `✅ <b>DÉPÔT CONFIRMÉ (mode test)</b>\n` +
-        `📋 Réf: <code>${ref}</code>\n` +
-        `👤 ${depot.clientNom}\n` +
-        `💰 ${Number(depot.montant).toLocaleString('fr-FR')} GNF\n\n` +
-        `<i>⚠️ API MobCash pas encore configurée — créditez manuellement</i>`,
-        null, agentChatId
-      );
+      await sendTelegram('✅ <b>DÉPÔT CONFIRMÉ (mode test)</b>\n📋 Réf: <code>'+ref+'</code>\n👤 '+depot.clientNom+'\n💰 '+Number(depot.montant).toLocaleString('fr-FR')+' GNF\n\n<i>⚠️ API MobCash non configurée</i>', null, chatId, botToken);
       return;
     }
-
-    // Appel API MobCash
     try {
       const lng = 'ru';
       const userId = depot.clientId1xbet;
       const montant = parseFloat(depot.montant);
       const sign = genSignDepot(lng, userId, montant);
       const confirm = genConfirm(userId);
-
-      const reqBody = {
-        cashdeskid: parseInt(CONFIG.CASHDESKID),
-        lng: lng,
-        summa: montant,
-        confirm: confirm
-      };
-      console.log('[DEPOT REQUEST] URL='+CONFIG.MOBCASH_URL+'/Deposit/'+userId+'/Add');
-      console.log('[DEPOT REQUEST] headers sign='+sign.substr(0,30)+'...');
+      const reqBody = { cashdeskid: parseInt(CONFIG.CASHDESKID), lng: lng, summa: montant, confirm: confirm };
       console.log('[DEPOT REQUEST] body='+JSON.stringify(reqBody));
-
       const response = await fetch(CONFIG.MOBCASH_URL+'/Deposit/'+userId+'/Add', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'sign': sign},
+        method: 'POST', headers: {'Content-Type': 'application/json', 'sign': sign},
         body: JSON.stringify(reqBody)
       });
-
       const result = await response.json();
       console.log('[MOBCASH RESPONSE]', JSON.stringify(result));
       if(result.success || result.Success){
         await db.collection('transactions').doc(ref).update({ statut: 'credite', creditedAt: admin.firestore.FieldValue.serverTimestamp() });
-        await sendTelegram(
-          `✅ <b>DÉPÔT CRÉDITÉ avec succès !</b>\n` +
-          `📋 Réf: <code>${ref}</code>\n` +
-          `👤 ${depot.clientNom}\n` +
-          `💰 ${Number(depot.montant).toLocaleString('fr-FR')} GNF\n` +
-          `🎯 ID 1xBet: ${userId}`,
-          null, agentChatId
-        );
+        await sendTelegram('✅ <b>DÉPÔT CRÉDITÉ avec succès !</b>\n📋 Réf: <code>'+ref+'</code>\n👤 '+depot.clientNom+'\n💰 '+Number(depot.montant).toLocaleString('fr-FR')+' GNF\n🎯 ID 1xBet: '+userId, null, chatId, botToken);
       } else {
-        await sendTelegram(`❌ <b>Erreur MobCash</b>\nErreur: ${result.Message || result.message || 'Inconnue'}\nCode: ${result.MessageId || result.messageId}`, null, agentChatId, agentToken);
+        await sendTelegram('❌ <b>Erreur MobCash</b>\nErreur: '+(result.Message||result.message||'Inconnue')+'\nCode: '+(result.MessageId||result.messageId||''), null, chatId, botToken);
       }
-    } catch(e){
-      await sendTelegram(`❌ Erreur serveur: ${e.message}`, null, agentChatId, agentToken);
-    }
+    } catch(e){ await sendTelegram('❌ Erreur serveur: '+e.message, null, chatId, botToken); }
   }
 
   // ---- DÉPÔT REJETÉ ----
-  else if(data.startsWith('reject_depot_')){
-    const ref = data.replace('reject_depot_', '');
+  else if(cbData.startsWith('reject_depot_')){
+    const ref = cbData.replace('reject_depot_', '');
     const doc = await db.collection('transactions').doc(ref).get();
     const depot = doc.exists ? doc.data() : {};
-    const agentChatId = depot.telegramChatId || null;
+    const chatId = depot.telegramChatId || null;
     await db.collection('transactions').doc(ref).update({ statut: 'rejete' });
-    await sendTelegram(
-      `❌ <b>DÉPÔT REJETÉ</b>\n` +
-      `📋 Réf: <code>${ref}</code>\n` +
-      `👤 ${depot.clientNom || 'Inconnu'}\n` +
-      `<i>Contactez le client sur WhatsApp: ${depot.clientWa || ''}</i>`,
-      null, agentChatId
-    );
+    await sendTelegram('❌ <b>DÉPÔT REJETÉ</b>\n📋 Réf: <code>'+ref+'</code>\n👤 '+(depot.clientNom||'Inconnu')+'\n<i>Contactez le client: '+(depot.clientWa||'')+'</i>', null, chatId, botToken);
   }
 
   // ---- RETRAIT CONFIRMÉ ----
-  else if(data.startsWith('confirm_retrait_')){
-    const ref = data.replace('confirm_retrait_', '');
+  else if(cbData.startsWith('confirm_retrait_')){
+    const ref = cbData.replace('confirm_retrait_', '');
     const doc = await db.collection('transactions').doc(ref).get();
-
-    if(!doc.exists){
-      await sendTelegram(`⚠️ Transaction <code>${ref}</code> introuvable ou déjà traitée.`);
-      return;
-    }
-
+    if(!doc.exists){ await sendTelegram('⚠️ Transaction <code>'+ref+'</code> introuvable.', null, null, botToken); return; }
     const retrait = doc.data();
-    const agentChatId = retrait.telegramChatId || null;
-    const agentToken = retrait.telegramToken || null;
-
+    const chatId = retrait.telegramChatId || null;
     if(retrait.statut !== 'en_attente'){
-      await sendTelegram(`⚠️ Transaction <code>${ref}</code> déjà traitée.`, null, agentChatId, agentToken);
-      return;
+      await sendTelegram('⚠️ Transaction <code>'+ref+'</code> déjà traitée.', null, chatId, botToken); return;
     }
-
     if(!CONFIG.HASH){
       await db.collection('transactions').doc(ref).update({ statut: 'confirme_test' });
-      await sendTelegram(
-        `✅ <b>RETRAIT CONFIRMÉ (mode test)</b>\n` +
-        `📋 Réf: <code>${ref}</code>\n` +
-        `👤 ${retrait.clientNom}\n` +
-        `💰 ${Number(retrait.montant).toLocaleString('fr-FR')} GNF\n` +
-        `📲 Envoyez au: ${retrait.numeroReception}\n\n` +
-        `<i>⚠️ API MobCash pas encore configurée — traitez manuellement</i>`,
-        null, agentChatId
-      );
+      await sendTelegram('✅ <b>RETRAIT CONFIRMÉ (mode test)</b>\n📋 Réf: <code>'+ref+'</code>\n👤 '+retrait.clientNom+'\n💰 '+Number(retrait.montant).toLocaleString('fr-FR')+' GNF\n📲 Envoyez au: '+retrait.numeroReception, null, chatId, botToken);
       return;
     }
-
     try {
-      const lng = 'fr';
+      const lng = 'ru';
       const userId = retrait.clientId1xbet;
       const sign = genSignRetrait(lng, userId, retrait.codeRetrait);
       const confirm = genConfirm(userId);
-      console.log('[RETRAIT] userId='+userId+' code='+retrait.codeRetrait+' cashdeskid='+CONFIG.CASHDESKID);
-
       const response = await fetch(CONFIG.MOBCASH_URL+'/Deposit/'+userId+'/Payout', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'sign': sign},
-        body: JSON.stringify({
-          cashdeskId: parseInt(CONFIG.CASHDESKID),
-          lng,
-          code: retrait.codeRetrait,
-          confirm
-        })
+        method: 'POST', headers: {'Content-Type': 'application/json', 'sign': sign},
+        body: JSON.stringify({ cashdeskId: parseInt(CONFIG.CASHDESKID), lng: lng, code: retrait.codeRetrait, confirm: confirm })
       });
-
       const result = await response.json();
-      console.log('[MOBCASH RESPONSE]', JSON.stringify(result));
+      console.log('[MOBCASH RETRAIT]', JSON.stringify(result));
       if(result.success || result.Success){
         await db.collection('transactions').doc(ref).update({ statut: 'traite', processedAt: admin.firestore.FieldValue.serverTimestamp() });
-        await sendTelegram(
-          `✅ <b>RETRAIT TRAITÉ avec succès !</b>\n` +
-          `📋 Réf: <code>${ref}</code>\n` +
-          `👤 ${retrait.clientNom}\n` +
-          `💰 ${Number(result.summa || retrait.montant).toLocaleString('fr-FR')} GNF\n` +
-          `📲 Envoyez au: ${retrait.numeroReception} via ${retrait.methode}`,
-          null, agentChatId
-        );
+        await sendTelegram('✅ <b>RETRAIT TRAITÉ !</b>\n📋 Réf: <code>'+ref+'</code>\n👤 '+retrait.clientNom+'\n💰 '+Number(result.Summa||result.summa||retrait.montant).toLocaleString('fr-FR')+' GNF\n📲 Envoyez au: '+retrait.numeroReception+' via '+retrait.methode, null, chatId, botToken);
       } else {
-        await sendTelegram(`❌ <b>Erreur MobCash retrait</b>\nErreur: ${result.message || 'Inconnue'}`, null, agentChatId, agentToken);
+        await sendTelegram('❌ <b>Erreur MobCash retrait</b>\nErreur: '+(result.Message||result.message||'Inconnue'), null, chatId, botToken);
       }
-    } catch(e){
-      await sendTelegram(`❌ Erreur serveur: ${e.message}`, null, agentChatId, agentToken);
-    }
+    } catch(e){ await sendTelegram('❌ Erreur serveur: '+e.message, null, chatId, botToken); }
   }
 
   // ---- RETRAIT REJETÉ ----
-  else if(data.startsWith('reject_retrait_')){
-    const ref = data.replace('reject_retrait_', '');
+  else if(cbData.startsWith('reject_retrait_')){
+    const ref = cbData.replace('reject_retrait_', '');
     const doc = await db.collection('transactions').doc(ref).get();
     const retrait = doc.exists ? doc.data() : {};
-    const agentChatId = retrait.telegramChatId || null;
+    const chatId = retrait.telegramChatId || null;
     await db.collection('transactions').doc(ref).update({ statut: 'rejete' });
-    await sendTelegram(
-      `❌ <b>RETRAIT REJETÉ</b>\n` +
-      `📋 Réf: <code>${ref}</code>\n` +
-      `👤 ${retrait.clientNom || 'Inconnu'}\n` +
-      `<i>Contactez le client: ${retrait.clientWa || ''}</i>`,
-      null, agentChatId
-    );
+    await sendTelegram('❌ <b>RETRAIT REJETÉ</b>\n📋 Réf: <code>'+ref+'</code>\n👤 '+(retrait.clientNom||'Inconnu')+'\n<i>Contactez le client: '+(retrait.clientWa||'')+'</i>', null, chatId, botToken);
   }
+}
+
+// ============================================
+// WEBHOOKS
+// ============================================
+// Webhook principal (votre bot)
+app.post('/webhook', async (req, res) => {
+  res.json({ ok: true });
+  await handleWebhook(req.body, CONFIG.TELEGRAM_TOKEN);
+});
+
+// Webhook bot Joseph
+app.post('/webhook/joseph', async (req, res) => {
+  res.json({ ok: true });
+  await handleWebhook(req.body, '7979158544:AAG5_MhnoMZ0UpIzU0GC_mEpDIFYqi1l31s');
+});
+
+// ============================================
+// SOLDE CAISSE
+// ============================================
+app.get('/balance', async (req, res) => {
+  if(!CONFIG.HASH) return res.json({ success: false, message: 'API MobCash non configurée' });
+  try {
+    const dt = new Date().toISOString().replace('T', ' ').substr(0, 19);
+    const p1 = sha256('hash='+CONFIG.HASH+'&cashdeskid='+CONFIG.CASHDESKID+'&dt='+dt);
+    const p2 = md5('dt='+dt+'&cashierpass='+CONFIG.CASHIERPASS+'&cashdeskid='+CONFIG.CASHDESKID);
+    const sign = sha256(p1 + p2);
+    const confirm = md5(CONFIG.CASHDESKID+':'+CONFIG.HASH);
+    const url = CONFIG.MOBCASH_URL+'/Cashdesk/'+CONFIG.CASHDESKID+'/Balance?confirm='+confirm+'&dt='+encodeURIComponent(dt);
+    const response = await fetch(url, { headers: { sign: sign } });
+    const data = await response.json();
+    res.json({ success: true, data: data });
+  } catch(e){ res.json({ success: false, message: e.message }); }
 });
 
 // ============================================
 // DÉMARRAGE
 // ============================================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, async () => {
-  console.log(`Serveur MobCash démarré sur le port ${PORT}`);
+const RENDER_URL = process.env.RENDER_URL || 'https://mobcash-server.onrender.com';
 
-  // Configurer webhook Telegram
+app.listen(PORT, async () => {
+  console.log('Serveur MobCash démarré sur le port '+PORT);
   try {
-    await fetch(`https://api.telegram.org/bot${CONFIG.TELEGRAM_TOKEN}/setWebhook`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ url: `${CONFIG.RENDER_URL}/webhook` })
+    // Webhook votre bot
+    await fetch('https://api.telegram.org/bot'+CONFIG.TELEGRAM_TOKEN+'/setWebhook', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ url: RENDER_URL+'/webhook' })
     });
-    console.log('Webhook Telegram configuré');
-    // Configurer aussi le webhook du bot de Joseph
+    console.log('Webhook principal configuré');
+    // Webhook bot Joseph
     await fetch('https://api.telegram.org/bot7979158544:AAG5_MhnoMZ0UpIzU0GC_mEpDIFYqi1l31s/setWebhook', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({ url: RENDER_URL+'/webhook/joseph' })
     });
-    console.log('Webhook bot Joseph configuré');
-  } catch(e){
-    console.warn('Webhook Telegram erreur:', e.message);
-  }
+    console.log('Webhook Joseph configuré');
+  } catch(e){ console.warn('Webhook erreur:', e.message); }
 });
