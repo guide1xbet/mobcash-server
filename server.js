@@ -276,7 +276,7 @@ app.post('/webhook', async (req, res) => {
 
       const result = await response.json();
       console.log('[MOBCASH RESPONSE]', JSON.stringify(result));
-      if(result.success){
+      if(result.success || result.Success){
         await db.collection('transactions').doc(ref).update({ statut: 'credite', creditedAt: admin.firestore.FieldValue.serverTimestamp() });
         await sendTelegram(
           `✅ <b>DÉPÔT CRÉDITÉ avec succès !</b>\n` +
@@ -287,7 +287,7 @@ app.post('/webhook', async (req, res) => {
           null, agentChatId
         );
       } else {
-        await sendTelegram(`❌ <b>Erreur MobCash</b>\nErreur: ${result.message || 'Inconnue'}\nCode: ${result.messageId}`, null, agentChatId);
+        await sendTelegram(`❌ <b>Erreur MobCash</b>\nErreur: ${result.Message || result.message || 'Inconnue'}\nCode: ${result.MessageId || result.messageId}`, null, agentChatId);
       }
     } catch(e){
       await sendTelegram(`❌ Erreur serveur: ${e.message}`, null, agentChatId);
@@ -362,7 +362,7 @@ app.post('/webhook', async (req, res) => {
 
       const result = await response.json();
       console.log('[MOBCASH RESPONSE]', JSON.stringify(result));
-      if(result.success){
+      if(result.success || result.Success){
         await db.collection('transactions').doc(ref).update({ statut: 'traite', processedAt: admin.firestore.FieldValue.serverTimestamp() });
         await sendTelegram(
           `✅ <b>RETRAIT TRAITÉ avec succès !</b>\n` +
