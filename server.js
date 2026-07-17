@@ -335,6 +335,36 @@ app.post('/webhook/joseph', async (req, res) => {
 });
 
 // ============================================
+// TRANSACTIONS — Pour le dashboard manager
+// ============================================
+app.get('/transactions', async (req, res) => {
+  // Vérifier la clé manager
+  const key = req.query.key;
+  if(key !== 'manager1xbet2025'){
+    return res.status(401).json({ success: false, error: 'Accès refusé' });
+  }
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const agent = req.query.agent || null;
+    const type = req.query.type || null;
+    const statut = req.query.statut || null;
+
+    let query = db.collection('transactions').orderBy('date', 'desc').limit(limit);
+    if(agent) query = query.where('agent', '==', agent);
+    if(type) query = query.where('type', '==', type);
+    if(statut) query = query.where('statut', '==', statut);
+
+    const snap = await query.get();
+    const transactions = [];
+    snap.forEach(doc => transactions.push({ id: doc.id, ...doc.data() }));
+    res.json({ success: true, transactions: transactions, total: transactions.length });
+  } catch(e){
+    console.error('Erreur transactions:', e);
+    res.json({ success: false, error: e.message });
+  }
+});
+
+// ============================================
 // SOLDE CAISSE
 // ============================================
 app.get('/balance', async (req, res) => {
