@@ -72,12 +72,7 @@ const CONFIG = {
 // VALIDATION SÉCURITÉ
 // ============================================
 function validateRequest(data){
-  // Vérifier la clé secrète client
-  if(data.clientSecret !== CONFIG.CLIENT_SECRET){
-    console.log('[SECURITY] Clé secrète invalide:', data.clientSecret);
-    return { valid: false, error: 'Accès non autorisé' };
-  }
-  // Vérifier que l'agent existe
+  // Vérifier que l'agent existe côté serveur
   if(!data.agentRef || !CONFIG.AGENTS[data.agentRef]){
     console.log('[SECURITY] Agent inconnu:', data.agentRef);
     return { valid: false, error: 'Agent invalide' };
@@ -90,6 +85,18 @@ function validateRequest(data){
   if(montant > 50000000){
     return { valid: false, error: 'Montant maximum dépassé' };
   }
+  // Vérifier les champs obligatoires
+  if(!data.clientNom || data.clientNom.length < 2){
+    return { valid: false, error: 'Nom client invalide' };
+  }
+  if(!data.clientId1xbet || data.clientId1xbet.length < 5){
+    return { valid: false, error: 'ID 1xBet invalide' };
+  }
+  if(!data.clientWa || data.clientWa.length < 8){
+    return { valid: false, error: 'Numéro WhatsApp invalide' };
+  }
+  // Logger la requête
+  console.log('[REQUEST] Agent:'+data.agentRef+' Montant:'+montant+' Client:'+data.clientNom);
   return { valid: true };
 }
 
@@ -355,6 +362,40 @@ app.post('/webhook', async (req, res) => {
 app.post('/webhook/joseph', async (req, res) => {
   res.json({ ok: true });
   await handleWebhook(req.body, '7979158544:AAG5_MhnoMZ0UpIzU0GC_mEpDIFYqi1l31s');
+});
+
+// ============================================
+// INFOS PUBLIQUES AGENT — Portail client
+// ============================================
+app.get('/agent/:ref', (req, res) => {
+  const ref = req.params.ref;
+  const agentPublic = {
+    joseph: {
+      nom: 'Joseph Henry',
+      pays: 'Guinée Conakry',
+      flag: '🇬🇳',
+      promo: 'JHL224',
+      pays_code: '+224',
+      moyens_depot: ['Orange Money','MTN Mobile Money','Cash'],
+      moyens_retrait: ['Orange Money','MTN Mobile Money','Cash'],
+      actif: true
+    },
+    elena: {
+      nom: 'Elena',
+      pays: 'Russie',
+      flag: '🇷🇺',
+      promo: 'RUS76',
+      pays_code: '+7',
+      moyens_depot: ['Visa/Mastercard','Qiwi','YooMoney','Cash'],
+      moyens_retrait: ['Visa/Mastercard','Qiwi','YooMoney','Cash'],
+      actif: true
+    }
+  };
+  const agent = agentPublic[ref];
+  if(!agent || !agent.actif){
+    return res.status(404).json({ success: false, error: 'Agent introuvable' });
+  }
+  res.json({ success: true, agent: { ref, ...agent } });
 });
 
 // ============================================
