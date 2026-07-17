@@ -4,6 +4,8 @@ const fetch = (...args) => import('node-fetch').then(({default: f}) => f(...args
 const admin = require('firebase-admin');
 
 const app = express();
+// Stockage temporaire en mémoire (si Firebase quota dépassé)
+const tempTransactions = {};
 app.use(express.json());
 
 // CORS
@@ -187,10 +189,22 @@ app.post('/retrait', async (req, res) => {
   try {
     const data = req.body;
     const ref = data.ref;
-    await db.collection('transactions').doc(ref).set({
-      ...data, type: 'retrait', statut: 'en_attente',
+    const retData = {
+      type: 'retrait', statut: 'en_attente',
+      agent: data.agentRef, agentNom: data.agentNom || data.agentRef,
+      clientNom: data.clientNom, clientWa: data.clientWa,
+      clientId1xbet: data.clientId1xbet, montant: parseFloat(data.montant),
+      methode: data.methode, codeRetrait: data.codeRetrait || '',
+      numeroReception: data.numeroReception || '',
+      ref: ref, date: new Date().toISOString(),
       createdAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+    };
+    try {
+      await db.collection('transactions').doc(ref).set(retData);
+    } catch(fbErr){
+      console.log('[FIREBASE] Sauvegarde impossible (quota?), retrait en mémoire:', ref);
+      tempTransactions[ref] = retData;
+    }
     const msg = '<b>💰 NOUVEAU RETRAIT</b>\n━━━━━━━━━━━━━━━\n' +
       '👤 <b>Client :</b> '+data.clientNom+'\n' +
       '📱 <b>WhatsApp :</b> '+data.clientWa+'\n' +
@@ -228,9 +242,14 @@ async function handleWebhook(update, botToken){
   // ---- DÉPÔT CONFIRMÉ ----
   if(cbData.startsWith('confirm_depot_')){
     const ref = cbData.replace('confirm_depot_', '');
-    const doc = await db.collection('transactions').doc(ref).get();
-    if(!doc.exists){ await sendTelegram('⚠️ Transaction <code>'+ref+'</code> introuvable.', null, null, botToken); return; }
-    const depot = doc.data();
+    let depot = null;
+    try {
+      const doc = await db.collection('transactions').doc(ref).get();
+      if(doc.exists) depot = doc.data();
+    } catch(e){ console.log('[FB] Lecture impossible:', e.message); }
+    // Chercher en mémoire si Firebase indisponible
+    if(!depot) depot = tempTransactions[ref] || null;
+    if(!depot){ await sendTelegram('⚠️ Transaction <code>'+ref+'</code> introuvable.', null, null, botToken); return; }
     const chatId = depot.telegramChatId || null;
     if(depot.statut !== 'en_attente'){
       await sendTelegram('⚠️ Transaction <code>'+ref+'</code> déjà traitée.', null, chatId, botToken); return;
@@ -255,7 +274,7 @@ async function handleWebhook(update, botToken){
       const result = await response.json();
       console.log('[MOBCASH RESPONSE]', JSON.stringify(result));
       if(result.success || result.Success){
-        await db.collection('transactions').doc(ref).update({ statut: 'credite', creditedAt: admin.firestore.FieldValue.serverTimestamp() });
+        try { await db.collection('transactions').doc(ref).update({ statut: 'credite', creditedAt: admin.firestore.FieldValue.serverTimestamp() }); } catch(e){ console.log('[FB] update impossible'); }
         await sendTelegram('✅ <b>DÉPÔT CRÉDITÉ avec succès !</b>\n📋 Réf: <code>'+ref+'</code>\n👤 '+depot.clientNom+'\n💰 '+Number(depot.montant).toLocaleString('fr-FR')+' GNF\n🎯 ID 1xBet: '+userId, null, chatId, botToken);
       } else {
         await sendTelegram('❌ <b>Erreur MobCash</b>\nErreur: '+(result.Message||result.message||'Inconnue')+'\nCode: '+(result.MessageId||result.messageId||''), null, chatId, botToken);
@@ -269,16 +288,20 @@ async function handleWebhook(update, botToken){
     const doc = await db.collection('transactions').doc(ref).get();
     const depot = doc.exists ? doc.data() : {};
     const chatId = depot.telegramChatId || null;
-    await db.collection('transactions').doc(ref).update({ statut: 'rejete' });
+    try { await db.collection('transactions').doc(ref).update({ statut: 'rejete' }); } catch(e){ console.log('[FB] update impossible'); }
     await sendTelegram('❌ <b>DÉPÔT REJETÉ</b>\n📋 Réf: <code>'+ref+'</code>\n👤 '+(depot.clientNom||'Inconnu')+'\n<i>Contactez le client: '+(depot.clientWa||'')+'</i>', null, chatId, botToken);
   }
 
   // ---- RETRAIT CONFIRMÉ ----
   else if(cbData.startsWith('confirm_retrait_')){
     const ref = cbData.replace('confirm_retrait_', '');
-    const doc = await db.collection('transactions').doc(ref).get();
-    if(!doc.exists){ await sendTelegram('⚠️ Transaction <code>'+ref+'</code> introuvable.', null, null, botToken); return; }
-    const retrait = doc.data();
+    let retrait = null;
+    try {
+      const doc = await db.collection('transactions').doc(ref).get();
+      if(doc.exists) retrait = doc.data();
+    } catch(e){ console.log('[FB] Lecture impossible:', e.message); }
+    if(!retrait) retrait = tempTransactions[ref] || null;
+    if(!retrait){ await sendTelegram('⚠️ Transaction <code>'+ref+'</code> introuvable.', null, null, botToken); return; }
     const chatId = retrait.telegramChatId || null;
     if(retrait.statut !== 'en_attente'){
       await sendTelegram('⚠️ Transaction <code>'+ref+'</code> déjà traitée.', null, chatId, botToken); return;
@@ -300,7 +323,7 @@ async function handleWebhook(update, botToken){
       const result = await response.json();
       console.log('[MOBCASH RETRAIT]', JSON.stringify(result));
       if(result.success || result.Success){
-        await db.collection('transactions').doc(ref).update({ statut: 'traite', processedAt: admin.firestore.FieldValue.serverTimestamp() });
+        try { await db.collection('transactions').doc(ref).update({ statut: 'traite', processedAt: admin.firestore.FieldValue.serverTimestamp() }); } catch(e){ console.log('[FB] update impossible'); }
         await sendTelegram('✅ <b>RETRAIT TRAITÉ !</b>\n📋 Réf: <code>'+ref+'</code>\n👤 '+retrait.clientNom+'\n💰 '+Number(result.Summa||result.summa||retrait.montant).toLocaleString('fr-FR')+' GNF\n📲 Envoyez au: '+retrait.numeroReception+' via '+retrait.methode, null, chatId, botToken);
       } else {
         await sendTelegram('❌ <b>Erreur MobCash retrait</b>\nErreur: '+(result.Message||result.message||'Inconnue'), null, chatId, botToken);
@@ -314,7 +337,7 @@ async function handleWebhook(update, botToken){
     const doc = await db.collection('transactions').doc(ref).get();
     const retrait = doc.exists ? doc.data() : {};
     const chatId = retrait.telegramChatId || null;
-    await db.collection('transactions').doc(ref).update({ statut: 'rejete' });
+    try { await db.collection('transactions').doc(ref).update({ statut: 'rejete' }); } catch(e){ console.log('[FB] update impossible'); }
     await sendTelegram('❌ <b>RETRAIT REJETÉ</b>\n📋 Réf: <code>'+ref+'</code>\n👤 '+(retrait.clientNom||'Inconnu')+'\n<i>Contactez le client: '+(retrait.clientWa||'')+'</i>', null, chatId, botToken);
   }
 }
