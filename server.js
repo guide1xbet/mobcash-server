@@ -33,7 +33,7 @@ admin.initializeApp({ credential: admin.credential.cert(serviceAccount), project
 const db = admin.firestore();
 
 // ============================================
-// CONFIG
+// CONFIG SÉCURISÉE — tout dans les variables d'environnement
 // ============================================
 const CONFIG = {
   MOBCASH_URL: 'https://partners.servcul.com/CashdeskBotAPI',
@@ -44,15 +44,66 @@ const CONFIG = {
   TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN || '8846519263:AAElTs6UGuo1WfjZfHQQcK3E3HVfDHRZhys',
   TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID || '8022571456',
   RENDER_URL: process.env.RENDER_URL || 'https://mobcash-server.onrender.com',
-  // Bots des agents
-  BOTS: {
+  CLIENT_SECRET: process.env.CLIENT_SECRET || 'xbet_client_2025_secure',
+  // Config agents — stockée UNIQUEMENT côté serveur
+  AGENTS: {
     'joseph': {
-      token: '7979158544:AAG5_MhnoMZ0UpIzU0GC_mEpDIFYqi1l31s',
-      chatId: '1010477144',
-      webhook: '/webhook/joseph'
+      telegramToken: process.env.JOSEPH_TELEGRAM_TOKEN || '7979158544:AAG5_MhnoMZ0UpIzU0GC_mEpDIFYqi1l31s',
+      telegramChatId: process.env.JOSEPH_CHAT_ID || '1010477144',
+      webhook: '/webhook/joseph',
+      mobcashHash: process.env.MOBCASH_HASH || '',
+      mobcashCashdeskId: process.env.MOBCASH_CASHDESKID || '',
+      mobcashCashierpass: process.env.MOBCASH_CASHIERPASS || ''
+    },
+    'elena': {
+      telegramToken: process.env.ELENA_TELEGRAM_TOKEN || '8846519263:AAElTs6UGuo1WfjZfHQQcK3E3HVfDHRZhys',
+      telegramChatId: process.env.ELENA_CHAT_ID || '7311996853',
+      webhook: '/webhook/elena',
+      mobcashHash: process.env.ELENA_MOBCASH_HASH || '',
+      mobcashCashdeskId: process.env.ELENA_MOBCASH_CASHDESKID || '',
+      mobcashCashierpass: process.env.ELENA_MOBCASH_CASHIERPASS || ''
     }
   }
 };
+
+// ============================================
+// VALIDATION SÉCURITÉ
+// ============================================
+function validateRequest(data){
+  // Vérifier la clé secrète client
+  if(data.clientSecret !== CONFIG.CLIENT_SECRET){
+    console.log('[SECURITY] Clé secrète invalide:', data.clientSecret);
+    return { valid: false, error: 'Accès non autorisé' };
+  }
+  // Vérifier que l'agent existe
+  if(!data.agentRef || !CONFIG.AGENTS[data.agentRef]){
+    console.log('[SECURITY] Agent inconnu:', data.agentRef);
+    return { valid: false, error: 'Agent invalide' };
+  }
+  // Vérifier le montant
+  var montant = parseFloat(data.montant || 0);
+  if(isNaN(montant) || montant < 1000){
+    return { valid: false, error: 'Montant minimum : 1 000 GNF' };
+  }
+  if(montant > 50000000){
+    return { valid: false, error: 'Montant maximum dépassé' };
+  }
+  return { valid: true };
+}
+
+// Rate limiting simple
+var requestCounts = {};
+function checkRateLimit(ip){
+  var now = Date.now();
+  if(!requestCounts[ip]) requestCounts[ip] = [];
+  // Garder seulement les requêtes des 60 dernières secondes
+  requestCounts[ip] = requestCounts[ip].filter(t => now - t < 60000);
+  if(requestCounts[ip].length >= 10){
+    return false; // Max 10 requêtes par minute
+  }
+  requestCounts[ip].push(now);
+  return true;
+}
 
 // ============================================
 // CRYPTO
@@ -98,7 +149,7 @@ async function sendTelegram(text, keyboard, chatId, token){
 // ============================================
 // PING
 // ============================================
-app.get('/ping', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
+app.get('/ping', (req, res) => res.send('ok'));
 
 // ============================================
 // DEPOT
