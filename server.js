@@ -165,28 +165,69 @@ app.get('/ping', (req, res) => res.send('ok'));
 // ============================================
 app.post('/depot', async (req, res) => {
   try {
+    const ip = req.headers['x-forwarded-for'] || req.ip;
+    if(!checkRateLimit(ip)){
+      return res.status(429).json({ success: false, error: 'Trop de requêtes.' });
+    }
     const data = req.body;
-    const ref = data.ref;
-    await db.collection('transactions').doc(ref).set({
-      ...data, type: 'depot', statut: 'en_attente',
+    const ref = data.ref || ('TXN-'+Date.now()+'-'+Math.random().toString(36).substr(2,5).toUpperCase());
+
+    // Récupérer la config de l'agent depuis le serveur
+    const agentRef = data.agentRef || data.agent || '';
+    const agentConfig = CONFIG.AGENTS[agentRef];
+    if(!agentConfig){
+      console.log('[DEPOT] Agent inconnu:', agentRef);
+      return res.json({ success: false, error: 'Agent invalide' });
+    }
+
+    // Valider le montant
+    const montant = parseFloat(data.montant || 0);
+    if(isNaN(montant) || montant < 1000){
+      return res.json({ success: false, error: 'Montant minimum 1000 GNF' });
+    }
+
+    console.log('[DEPOT] Agent:'+agentRef+' Montant:'+montant+' Client:'+data.clientNom);
+
+    // Sauvegarder dans Firebase
+    const txData = {
+      type: 'depot', statut: 'en_attente',
+      agent: agentRef, agentNom: data.agentNom || agentRef,
+      clientNom: data.clientNom, clientWa: data.clientWa,
+      clientId1xbet: data.clientId1xbet, montant: montant,
+      methode: data.methode,
+      idTransaction: data.idTransaction || data.codeSMS || '',
+      ref: ref, date: new Date().toISOString(),
       createdAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+    };
+    try {
+      await db.collection('transactions').doc(ref).set(txData);
+    } catch(fbErr){
+      console.log('[FIREBASE] Sauvegarde impossible:', fbErr.message);
+      tempTransactions[ref] = txData;
+    }
+
+    // Notifier Joseph via son bot
     const msg = '<b>💳 NOUVEAU DÉPÔT</b>\n━━━━━━━━━━━━━━━\n' +
       '👤 <b>Client :</b> '+data.clientNom+'\n' +
       '📱 <b>WhatsApp :</b> '+data.clientWa+'\n' +
       '🔢 <b>ID 1xBet :</b> '+data.clientId1xbet+'\n' +
-      '💰 <b>Montant :</b> '+Number(data.montant).toLocaleString('fr-FR')+' GNF\n' +
+      '💰 <b>Montant :</b> '+Number(montant).toLocaleString('fr-FR')+' GNF\n' +
       '📲 <b>Méthode :</b> '+data.methode+'\n' +
-      '🔑 <b>ID Transaction :</b> <code>'+data.idTransaction+'</code>\n' +
+      '🔑 <b>ID Transaction :</b> <code>'+(data.idTransaction||'—')+'</code>\n' +
       '📋 <b>Réf :</b> <code>'+ref+'</code>\n━━━━━━━━━━━━━━━\n' +
       '⚡ <i>Vérifiez le paiement puis confirmez</i>';
     const keyboard = [[
       { text: '✅ Confirmer et créditer', callback_data: 'confirm_depot_'+ref },
       { text: '❌ Rejeter', callback_data: 'reject_depot_'+ref }
     ]];
-    await sendTelegram(msg, keyboard, data.telegramChatId || null, data.telegramToken || null);
+
+    // Utiliser les clés de l'agent depuis le serveur
+    await sendTelegram(msg, keyboard, agentConfig.telegramChatId, agentConfig.telegramToken);
     res.json({ success: true, ref: ref });
-  } catch(e){ console.error('Erreur depot:', e); res.json({ success: false, message: e.message }); }
+  } catch(e){
+    console.error('[DEPOT ERROR]', e.message);
+    res.json({ success: false, message: e.message });
+  }
 });
 
 // ============================================
